@@ -7,6 +7,10 @@ const PLAYER_LOCATION: f32 = 450.;
 const PLAYER_SPEED: f32 = 2.;
 const MAX_PLAYER_HEIGHT: f32 = 250.;
 const BALL_STARTING_SPEED: f32 = 150.;
+const BALL_RADIUS: f32 = 10.;
+
+#[derive(Component)]
+struct Collision;
 
 #[derive(Component)]
 struct PlayerControlled;
@@ -17,18 +21,42 @@ struct GameBall {
     direction: f32,
 }
 
-#[derive(Component)]
-struct ScoreBoard {
-    left_score: u32,
-    right_score: u32,
-}
+// #[derive(Component)]
+// struct ScoreBoard {
+//     left_score: u32,
+//     right_score: u32,
+// }
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, scene_setup)
-        .add_systems(Update, (player_input_system, ball_movement_system))
+        .add_systems(Update, (player_input_system, ball_movement_system, collision_system))
         .run();
+}
+
+fn collision_system(
+    windows: Query<&Window>,
+    paddle_query: Query<&Transform, With<Collision>>,
+    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collision>>
+) {
+    let window = windows.single();
+
+    let ceiling = window.height() / 2.;
+    let wall_right = window.width() / 2.;
+    for paddle_transform in &paddle_query {
+        for (ball_transform, mut ball_info) in &mut ball_query {
+            if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
+                && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
+            {
+                ball_info.direction += 180.;
+                ball_info.speed += 50.;
+            }
+            if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
+                ball_info.direction += 180.;
+            }
+        }
+    }
 }
 
 fn player_input_system(
@@ -61,7 +89,7 @@ fn scene_setup(
 ) {
     command.spawn(Camera2dBundle::default());
 
-    command.spawn(SpriteBundle {
+    command.spawn((SpriteBundle {
         sprite: Sprite {
             color: PLAYER_COLOR,
             custom_size: PLAYER_SIZE,
@@ -69,7 +97,10 @@ fn scene_setup(
         },
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
-    });
+    },
+         PlayerControlled,
+         Collision
+    ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
             color: PLAYER_COLOR,
@@ -80,10 +111,11 @@ fn scene_setup(
         ..default()
     },
         PlayerControlled,
+        Collision
     ));
 
     command.spawn((MaterialMesh2dBundle {
-        mesh: meshes.add(shape::Circle::new(10.).into()).into(),
+        mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
         material: materials.add(ColorMaterial::from(Color::WHITE)),
         transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
         ..default()
@@ -91,29 +123,29 @@ fn scene_setup(
         GameBall {
             speed: BALL_STARTING_SPEED,
             direction: 0.,
-        }
-    ));
-
-    command.spawn((
-        // Create a TextBundle that has a Text with a single section.
-        TextBundle::from_section(
-            "0 - 0",
-            TextStyle {
-                font_size: 60.0,
-                ..default()
-            },
-        )
-            .with_text_alignment(TextAlignment::Center)
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(650.),
-                right: Val::Px(550.),
-                align_content: AlignContent::Center,
-                ..default()
-            }),
-        ScoreBoard {
-            left_score: 0,
-            right_score: 0,
         },
     ));
+
+    // command.spawn((
+    //     // Create a TextBundle that has a Text with a single section.
+    //     TextBundle::from_section(
+    //         "0 - 0",
+    //         TextStyle {
+    //             font_size: 60.0,
+    //             ..default()
+    //         },
+    //     )
+    //         .with_text_alignment(TextAlignment::Center)
+    //         .with_style(Style {
+    //             position_type: PositionType::Absolute,
+    //             bottom: Val::Px(650.),
+    //             right: Val::Px(550.),
+    //             align_content: AlignContent::Center,
+    //             ..default()
+    //         }),
+    //     ScoreBoard {
+    //         left_score: 0,
+    //         right_score: 0,
+    //     },
+    // ));
 }
