@@ -5,6 +5,7 @@ use std::f32::consts::PI;
 const PLAYER_COLOR: Color = Color::WHITE;
 const PLAYER_SIZE: Option<Vec2> = Some(Vec2::new(20.0, 150.0));
 const PLAYER_LOCATION: f32 = 450.;
+const GOAL_BUFFER: f32 = 50.;
 const PLAYER_SPEED: f32 = 2.;
 const MAX_PLAYER_HEIGHT: f32 = 250.;
 const BALL_STARTING_SPEED: f32 = 150.;
@@ -22,18 +23,77 @@ struct GameBall {
     direction: f32,
 }
 
-// #[derive(Component)]
-// struct ScoreBoard {
-//     left_score: u32,
-//     right_score: u32,
-// }
+enum WinnerSide {
+    Right,
+    Left,
+}
+#[derive(Event)]
+struct ScoreEvent {
+    winner: WinnerSide
+}
+
+#[derive(Resource, Default)]
+struct ScoreBoard {
+    left_score: u32,
+    right_score: u32,
+}
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .init_resource::<ScoreBoard>()
+        .add_event::<ScoreEvent>()
         .add_systems(Startup, scene_setup)
-        .add_systems(Update, (player_input_system, ball_movement_system, collision_system))
+        .add_systems(Update, (player_input_system, ball_movement_system, collision_system, score_event_trigger, score_event_listener))
+        .add_systems(Update, reset_scene.run_if(resource_changed::<ScoreBoard>()))
         .run();
+}
+
+fn score_event_trigger(
+    mut events: EventWriter<ScoreEvent>,
+    ball: Query<&Transform, With<GameBall>>
+) {
+    let ball_transform = ball.single();
+    if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
+        events.send(ScoreEvent {
+            winner: WinnerSide::Right
+        });
+    } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
+        events.send(ScoreEvent {
+            winner: WinnerSide::Left
+        });
+    }
+}
+
+fn score_event_listener(
+    mut events: EventReader<ScoreEvent>,
+    mut score_board: ResMut<ScoreBoard>
+) {
+    for event in events.read() {
+        match event.winner {
+            WinnerSide::Right => {
+                score_board.right_score += 1;
+            },
+            WinnerSide::Left => {
+                score_board.left_score += 1;
+            }
+        }
+    }
+}
+
+fn reset_scene(
+    mut paddle_query: Query<&mut Transform, Without<GameBall>>,
+    mut ball_query: Query<(&mut Transform, &mut GameBall), With<GameBall>>,
+) {
+    for mut paddle_transform in &mut paddle_query {
+        paddle_transform.translation.y = 0.;
+    }
+    for (mut ball_transform, mut ball_info) in &mut ball_query {
+        ball_transform.translation.x = 0.;
+        ball_transform.translation.y = 0.;
+        ball_info.direction = 0.;
+        ball_info.speed = BALL_STARTING_SPEED;
+    }
 }
 
 fn collision_system(
@@ -85,11 +145,50 @@ fn ball_movement_system(
 
 fn scene_setup(
     mut command: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
 ) {
     command.spawn(Camera2dBundle::default());
 
+    paddle_setup(&mut command);
+
+    game_ball_setup(&mut command, meshes, materials);
+
+    command.spawn((
+        // Create a TextBundle that has a Text with a single section.
+        TextBundle::from_section(
+            "0 - 0",
+            TextStyle {
+                font_size: 60.0,
+                ..default()
+            },
+        )
+            .with_text_alignment(TextAlignment::Center)
+            .with_style(Style {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(650.),
+                right: Val::Px(550.),
+                align_content: AlignContent::Center,
+                ..default()
+            }),
+    ));
+}
+
+fn game_ball_setup(command: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>) {
+    command.spawn((MaterialMesh2dBundle {
+        mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
+        material: materials.add(ColorMaterial::from(Color::WHITE)),
+        transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
+        ..default()
+    },
+                   GameBall {
+                       speed: BALL_STARTING_SPEED,
+                       direction: 0.,
+                   },
+    ));
+}
+
+fn paddle_setup(command: &mut Commands) {
     command.spawn((SpriteBundle {
         sprite: Sprite {
             color: PLAYER_COLOR,
@@ -99,8 +198,8 @@ fn scene_setup(
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-         PlayerControlled,
-         Collision
+                   PlayerControlled,
+                   Collision
     ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
@@ -111,42 +210,7 @@ fn scene_setup(
         transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled,
-        Collision
+                   PlayerControlled,
+                   Collision
     ));
-
-    command.spawn((MaterialMesh2dBundle {
-        mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
-        material: materials.add(ColorMaterial::from(Color::WHITE)),
-        transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-        ..default()
-    },
-        GameBall {
-            speed: BALL_STARTING_SPEED,
-            direction: 0.,
-        },
-    ));
-
-    // command.spawn((
-    //     // Create a TextBundle that has a Text with a single section.
-    //     TextBundle::from_section(
-    //         "0 - 0",
-    //         TextStyle {
-    //             font_size: 60.0,
-    //             ..default()
-    //         },
-    //     )
-    //         .with_text_alignment(TextAlignment::Center)
-    //         .with_style(Style {
-    //             position_type: PositionType::Absolute,
-    //             bottom: Val::Px(650.),
-    //             right: Val::Px(550.),
-    //             align_content: AlignContent::Center,
-    //             ..default()
-    //         }),
-    //     ScoreBoard {
-    //         left_score: 0,
-    //         right_score: 0,
-    //     },
-    // ));
 }
