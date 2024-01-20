@@ -1,14 +1,19 @@
+#![windows_subsystem = "windows"]
+
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use std::f32::consts::PI;
+use rand::seq::SliceRandom;
 
 const PLAYER_COLOR: Color = Color::WHITE;
 const PLAYER_SIZE: Option<Vec2> = Some(Vec2::new(20.0, 150.0));
 const PLAYER_LOCATION: f32 = 450.;
-const GOAL_BUFFER: f32 = 50.;
-const PLAYER_SPEED: f32 = 2.;
-const MAX_PLAYER_HEIGHT: f32 = 250.;
+
 const BALL_STARTING_SPEED: f32 = 150.;
+const PLAYER_SPEED: f32 = 2.;
+
+const MAX_PLAYER_HEIGHT: f32 = 250.;
+const GOAL_BUFFER: f32 = 50.;
 const BALL_RADIUS: f32 = 10.;
 
 #[derive(Component)]
@@ -23,28 +28,18 @@ struct GameBall {
     direction: f32,
 }
 
-enum WinnerSide {
-    Right,
-    Left,
-}
-#[derive(Event)]
-struct ScoreEvent {
-    winner: WinnerSide
-}
-
 #[derive(Resource, Default)]
 struct ScoreBoard {
-    left_score: f32,
-    right_score: f32,
+    left_score: u32,
+    right_score: u32,
 }
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_resource::<ScoreBoard>()
-        .add_event::<ScoreEvent>()
         .add_systems(Startup, scene_setup)
-        .add_systems(Update, (player_input_system, ball_movement_system, collision_system, score_event_trigger, score_event_listener))
+        .add_systems(Update, (player_input_system, ball_movement_system, collision_system, score_event_trigger))
         .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
 }
@@ -137,43 +132,22 @@ fn reset_scene(
     for (mut ball_transform, mut ball_info) in &mut ball_query {
         ball_transform.translation.x = 0.;
         ball_transform.translation.y = 0.;
-        ball_info.direction = 0.;
+        ball_info.direction = *[0., PI].choose(&mut rand::thread_rng()).unwrap();
         ball_info.speed = BALL_STARTING_SPEED;
     }
 }
 
 fn score_event_trigger(
-    mut events: EventWriter<ScoreEvent>,
-    ball: Query<&Transform, With<GameBall>>
+    ball: Query<&Transform, With<GameBall>>,
+    mut score_board: ResMut<ScoreBoard>
 ) {
     let ball_transform = ball.single();
     if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
-        events.send(ScoreEvent {
-            winner: WinnerSide::Left
-        });
+        score_board.left_score += 1;
     } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
-        events.send(ScoreEvent {
-            winner: WinnerSide::Right
-        });
+        score_board.right_score += 1;
     }
 }
-
-fn score_event_listener(
-    mut events: EventReader<ScoreEvent>,
-    mut score_board: ResMut<ScoreBoard>
-) {
-    for event in events.read() {
-        match event.winner {
-            WinnerSide::Right => {
-                score_board.right_score += 0.5;
-            },
-            WinnerSide::Left => {
-                score_board.left_score += 0.5;
-            }
-        }
-    }
-}
-
 
 fn update_scoreboard_system(
     mut query: Query<&mut Text>,
@@ -200,7 +174,7 @@ fn collision_system(
                 && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
             {
                 ball_info.direction += PI / 4.;
-                ball_info.speed += 50.;
+                //ball_info.speed += 50.;
             }
             if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
                 ball_info.direction += PI / 4.;
