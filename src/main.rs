@@ -34,8 +34,8 @@ struct ScoreEvent {
 
 #[derive(Resource, Default)]
 struct ScoreBoard {
-    left_score: u32,
-    right_score: u32,
+    left_score: f32,
+    right_score: f32,
 }
 
 fn main() {
@@ -45,40 +45,86 @@ fn main() {
         .add_event::<ScoreEvent>()
         .add_systems(Startup, scene_setup)
         .add_systems(Update, (player_input_system, ball_movement_system, collision_system, score_event_trigger, score_event_listener))
-        .add_systems(Update, reset_scene.run_if(resource_changed::<ScoreBoard>()))
+        .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
 }
 
-fn score_event_trigger(
-    mut events: EventWriter<ScoreEvent>,
-    ball: Query<&Transform, With<GameBall>>
+fn scene_setup(
+    mut command: Commands,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let ball_transform = ball.single();
-    if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
-        events.send(ScoreEvent {
-            winner: WinnerSide::Right
-        });
-    } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
-        events.send(ScoreEvent {
-            winner: WinnerSide::Left
-        });
-    }
+    command.spawn(Camera2dBundle::default());
+
+    paddle_setup(&mut command);
+    ui_text_setup(&mut command);
+    game_ball_setup(&mut command, meshes, materials);
 }
 
-fn score_event_listener(
-    mut events: EventReader<ScoreEvent>,
-    mut score_board: ResMut<ScoreBoard>
-) {
-    for event in events.read() {
-        match event.winner {
-            WinnerSide::Right => {
-                score_board.right_score += 1;
+fn ui_text_setup(command: &mut Commands) {
+    command.spawn((
+        // Create a TextBundle that has a Text with a single section.
+        TextBundle::from_section(
+            "0 - 0",
+            TextStyle {
+                font_size: 60.0,
+                ..default()
             },
-            WinnerSide::Left => {
-                score_board.left_score += 1;
-            }
-        }
-    }
+        )
+            .with_text_alignment(TextAlignment::Center)
+            .with_style(Style {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(650.),
+                right: Val::Px(550.),
+                align_content: AlignContent::Center,
+                ..default()
+            }),
+    ));
+}
+
+fn game_ball_setup(
+    command: &mut Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>
+) {
+    command.spawn((MaterialMesh2dBundle {
+        mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
+        material: materials.add(ColorMaterial::from(Color::WHITE)),
+        transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
+        ..default()
+    },
+                   GameBall {
+                       speed: BALL_STARTING_SPEED,
+                       direction: 0.,
+                   },
+    ));
+}
+
+fn paddle_setup(command: &mut Commands) {
+    command.spawn((SpriteBundle {
+        sprite: Sprite {
+            color: PLAYER_COLOR,
+            custom_size: PLAYER_SIZE,
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
+        ..default()
+    },
+                   PlayerControlled,
+                   Collision
+    ));
+    command.spawn((SpriteBundle {
+        sprite: Sprite {
+            color: PLAYER_COLOR,
+            custom_size: PLAYER_SIZE,
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
+        ..default()
+    },
+                   PlayerControlled,
+                   Collision
+    ));
 }
 
 fn reset_scene(
@@ -93,6 +139,49 @@ fn reset_scene(
         ball_transform.translation.y = 0.;
         ball_info.direction = 0.;
         ball_info.speed = BALL_STARTING_SPEED;
+    }
+}
+
+fn score_event_trigger(
+    mut events: EventWriter<ScoreEvent>,
+    ball: Query<&Transform, With<GameBall>>
+) {
+    let ball_transform = ball.single();
+    if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
+        events.send(ScoreEvent {
+            winner: WinnerSide::Left
+        });
+    } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
+        events.send(ScoreEvent {
+            winner: WinnerSide::Right
+        });
+    }
+}
+
+fn score_event_listener(
+    mut events: EventReader<ScoreEvent>,
+    mut score_board: ResMut<ScoreBoard>
+) {
+    for event in events.read() {
+        match event.winner {
+            WinnerSide::Right => {
+                score_board.right_score += 0.5;
+            },
+            WinnerSide::Left => {
+                score_board.left_score += 0.5;
+            }
+        }
+    }
+}
+
+
+fn update_scoreboard_system(
+    mut query: Query<&mut Text>,
+    score_board: Res<ScoreBoard>,
+) {
+    let updated_text = format!("{} - {}", score_board.left_score ,score_board.right_score);
+    for mut ui in &mut query {
+        ui.sections[0].value = updated_text.clone();
     }
 }
 
@@ -141,76 +230,4 @@ fn ball_movement_system(
         ball_transform.translation.x += ball_info.speed * f32::cos(ball_info.direction) * time.delta_seconds();
         ball_transform.translation.y += ball_info.speed * f32::sin(ball_info.direction) * time.delta_seconds();
     }
-}
-
-fn scene_setup(
-    mut command: Commands,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<ColorMaterial>>,
-) {
-    command.spawn(Camera2dBundle::default());
-
-    paddle_setup(&mut command);
-
-    game_ball_setup(&mut command, meshes, materials);
-
-    command.spawn((
-        // Create a TextBundle that has a Text with a single section.
-        TextBundle::from_section(
-            "0 - 0",
-            TextStyle {
-                font_size: 60.0,
-                ..default()
-            },
-        )
-            .with_text_alignment(TextAlignment::Center)
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(650.),
-                right: Val::Px(550.),
-                align_content: AlignContent::Center,
-                ..default()
-            }),
-    ));
-}
-
-fn game_ball_setup(command: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>) {
-    command.spawn((MaterialMesh2dBundle {
-        mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
-        material: materials.add(ColorMaterial::from(Color::WHITE)),
-        transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-        ..default()
-    },
-                   GameBall {
-                       speed: BALL_STARTING_SPEED,
-                       direction: 0.,
-                   },
-    ));
-}
-
-fn paddle_setup(command: &mut Commands) {
-    command.spawn((SpriteBundle {
-        sprite: Sprite {
-            color: PLAYER_COLOR,
-            custom_size: PLAYER_SIZE,
-            ..default()
-        },
-        transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
-        ..default()
-    },
-                   PlayerControlled,
-                   Collision
-    ));
-    command.spawn((SpriteBundle {
-        sprite: Sprite {
-            color: PLAYER_COLOR,
-            custom_size: PLAYER_SIZE,
-            ..default()
-        },
-        transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
-        ..default()
-    },
-                   PlayerControlled,
-                   Collision
-    ));
 }
