@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::core::FrameCount;
 use std::f32::consts::PI;
 use rand::seq::SliceRandom;
 
@@ -11,9 +12,11 @@ const PLAYER_LOCATION: f32 = 450.;
 
 const BALL_STARTING_SPEED: f32 = 150.;
 const PLAYER_SPEED: f32 = 2.;
+const SPEED_INCREASE_PER_BOUNCE: f32 = 25.;
+const COLLISION_GRACE_FRAMES: u32 = 1;
 
 const MAX_PLAYER_HEIGHT: f32 = 250.;
-const GOAL_BUFFER: f32 = 50.;
+const GOAL_BUFFER: f32 = 75.;
 const BALL_RADIUS: f32 = 10.;
 
 #[derive(Component)]
@@ -22,10 +25,11 @@ struct Collision;
 #[derive(Component)]
 struct PlayerControlled;
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct GameBall {
     speed: f32,
     direction: f32,
+    collision_frame: FrameCount,
 }
 
 #[derive(Resource, Default)]
@@ -90,7 +94,7 @@ fn game_ball_setup(
     },
                    GameBall {
                        speed: BALL_STARTING_SPEED,
-                       direction: 0.,
+                       ..default()
                    },
     ));
 }
@@ -129,23 +133,30 @@ fn reset_scene(
     for mut paddle_transform in &mut paddle_query {
         paddle_transform.translation.y = 0.;
     }
-    for (mut ball_transform, mut ball_info) in &mut ball_query {
-        ball_transform.translation.x = 0.;
-        ball_transform.translation.y = 0.;
-        ball_info.direction = *[0., PI].choose(&mut rand::thread_rng()).unwrap();
-        ball_info.speed = BALL_STARTING_SPEED;
-    }
+
+    let (mut ball_transform, mut ball_info) = ball_query.single_mut();
+    ball_transform.translation.x = 0.;
+    ball_transform.translation.y = 0.;
+    ball_info.direction = *[0., PI].choose(&mut rand::thread_rng()).unwrap();
+    ball_info.speed = BALL_STARTING_SPEED;
 }
 
 fn score_event_trigger(
-    ball: Query<&Transform, With<GameBall>>,
-    mut score_board: ResMut<ScoreBoard>
+    mut ball: Query<(&Transform, &mut GameBall)>,
+    mut score_board: ResMut<ScoreBoard>,
+    frames: Res<FrameCount>,
 ) {
-    let ball_transform = ball.single();
+    let (ball_transform, mut ball_info) = ball.single_mut();
+    if ball_info.collision_frame.0 + COLLISION_GRACE_FRAMES > frames.0 {
+        return
+    }
+
     if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
         score_board.left_score += 1;
+        ball_info.collision_frame = *frames;
     } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
         score_board.right_score += 1;
+        ball_info.collision_frame = *frames;
     }
 }
 
@@ -162,23 +173,31 @@ fn update_scoreboard_system(
 fn collision_system(
     windows: Query<&Window>,
     paddle_query: Query<&Transform, With<Collision>>,
-    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collision>>
+    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collision>>,
+    frames: Res<FrameCount>,
 ) {
     let window = windows.single();
 
     let ceiling = window.height() / 2.;
     let wall_right = window.width() / 2.;
+
+    let (ball_transform, mut ball_info) = ball_query.single_mut();
+    if ball_info.collision_frame.0 + COLLISION_GRACE_FRAMES > frames.0 {
+        return
+    }
+
     for paddle_transform in &paddle_query {
-        for (ball_transform, mut ball_info) in &mut ball_query {
-            if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
-                && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
-            {
-                ball_info.direction += PI / 4.;
-                //ball_info.speed += 50.;
-            }
-            if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
-                ball_info.direction += PI / 4.;
-            }
+
+        if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
+            && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
+        {
+            ball_info.direction += PI / 4.;
+            ball_info.speed += SPEED_INCREASE_PER_BOUNCE;
+            ball_info.collision_frame = *frames;
+        }
+        if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
+            ball_info.direction += PI / 4.;
+            ball_info.collision_frame = *frames;
         }
     }
 }
@@ -198,10 +217,9 @@ fn player_input_system(
 
 fn ball_movement_system(
     time: Res<Time>,
-    mut query: Query<(&mut Transform,&GameBall)>,
+    mut query: Query<(&mut Transform, &GameBall)>,
 ) {
-    for (mut ball_transform, ball_info) in &mut query {
-        ball_transform.translation.x += ball_info.speed * f32::cos(ball_info.direction) * time.delta_seconds();
-        ball_transform.translation.y += ball_info.speed * f32::sin(ball_info.direction) * time.delta_seconds();
-    }
+    let (mut ball_transform, ball_info) = query.single_mut();
+    ball_transform.translation.x += ball_info.speed * f32::cos(ball_info.direction) * time.delta_seconds();
+    ball_transform.translation.y += ball_info.speed * f32::sin(ball_info.direction) * time.delta_seconds();
 }
