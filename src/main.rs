@@ -191,7 +191,7 @@ fn collision_system(
         if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
             && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
         {
-            ball_info.direction += PI / 4.;
+            ball_info.direction += if ball_info.direction.abs() % PI == 0. {3. * PI / 4.} else {PI / 4.};
             ball_info.speed += SPEED_INCREASE_PER_BOUNCE;
             ball_info.collision_frame = *frames;
         }
