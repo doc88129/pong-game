@@ -174,7 +174,7 @@ fn collision_system(
                 && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
             {
                 ball_info.direction += PI / 4.;
-                ball_info.speed += 50.;
+                //ball_info.speed += 50.;
             }
             if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
                 ball_info.direction += PI / 4.;
