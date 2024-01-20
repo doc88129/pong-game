@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
+use std::f32::consts::PI;
 
 const PLAYER_COLOR: Color = Color::WHITE;
 const PLAYER_SIZE: Option<Vec2> = Some(Vec2::new(20.0, 150.0));
@@ -49,11 +50,11 @@ fn collision_system(
             if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
                 && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
             {
-                ball_info.direction += 180.;
+                ball_info.direction += PI / 4.;
                 ball_info.speed += 50.;
             }
             if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
-                ball_info.direction += 180.;
+                ball_info.direction += PI / 4.;
             }
         }
     }
