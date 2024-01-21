@@ -1,36 +1,31 @@
 #![windows_subsystem = "windows"]
 
+use bevy::math::vec2;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
-use bevy::core::FrameCount;
-use std::f32::consts::PI;
+use bevy::sprite::collide_aabb::{collide, Collision};
 use rand::seq::SliceRandom;
 
 const PLAYER_COLOR: Color = Color::WHITE;
 const PLAYER_SIZE: Option<Vec2> = Some(Vec2::new(20.0, 150.0));
 const PLAYER_LOCATION: f32 = 450.;
 
-const BALL_STARTING_SPEED: f32 = 150.;
-const PLAYER_SPEED: f32 = 2.;
-const SPEED_INCREASE_PER_BOUNCE: f32 = 25.;
-const COLLISION_GRACE_FRAMES: u32 = 1;
+const BALL_STARTING_SPEED: f32 = 175.;
+const PLAYER_SPEED: f32 = 5.;
+const SPEED_INCREASE_PER_BOUNCE: f32 = 1.1;
 
-const MAX_PLAYER_HEIGHT: f32 = 250.;
+const MAX_PLAYER_HEIGHT: f32 = 275.;
 const GOAL_BUFFER: f32 = 75.;
 const BALL_RADIUS: f32 = 10.;
 
 #[derive(Component)]
-struct Collision;
+struct Collider;
 
 #[derive(Component)]
 struct PlayerControlled;
 
-#[derive(Component, Default)]
-struct GameBall {
-    speed: f32,
-    direction: f32,
-    collision_frame: FrameCount,
-}
+#[derive(Component, Default, Deref, DerefMut)]
+struct GameBall(Vec2);
 
 #[derive(Resource, Default)]
 struct ScoreBoard {
@@ -43,7 +38,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .init_resource::<ScoreBoard>()
         .add_systems(Startup, scene_setup)
-        .add_systems(Update, (player_input_system, ball_movement_system, collision_system, score_event_trigger))
+        .add_systems(FixedUpdate, (player_input_system, ball_movement_system, collision_system))
+        .add_systems(Update, score_event_trigger)
         .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
 }
@@ -91,10 +87,10 @@ fn game_ball_setup(
         transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
         ..default()
     },
-        GameBall {
-            speed: BALL_STARTING_SPEED,
-            ..default()
-        },
+        GameBall(Vec2::new(
+            *[BALL_STARTING_SPEED/2., -BALL_STARTING_SPEED/2.].choose(&mut rand::thread_rng()).unwrap(),
+            *[BALL_STARTING_SPEED, -BALL_STARTING_SPEED].choose(&mut rand::thread_rng()).unwrap(),
+        ))
     ));
 }
 
@@ -108,8 +104,7 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled,
-        Collision
+        PlayerControlled, Collider
     ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
@@ -120,8 +115,7 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled,
-        Collision
+        PlayerControlled, Collider
     ));
 }
 
@@ -136,26 +130,20 @@ fn reset_scene(
     let (mut ball_transform, mut ball_info) = ball_query.single_mut();
     ball_transform.translation.x = 0.;
     ball_transform.translation.y = 0.;
-    ball_info.direction = *[0., PI].choose(&mut rand::thread_rng()).unwrap();
-    ball_info.speed = BALL_STARTING_SPEED;
+    ball_info.y = *[BALL_STARTING_SPEED/2., -BALL_STARTING_SPEED/2.].choose(&mut rand::thread_rng()).unwrap();
+    ball_info.x = *[BALL_STARTING_SPEED, -BALL_STARTING_SPEED].choose(&mut rand::thread_rng()).unwrap();
 }
 
 fn score_event_trigger(
-    mut ball: Query<(&Transform, &mut GameBall)>,
+    mut ball: Query<&Transform, With<GameBall>>,
     mut score_board: ResMut<ScoreBoard>,
-    frames: Res<FrameCount>,
 ) {
-    let (ball_transform, mut ball_info) = ball.single_mut();
-    if ball_info.collision_frame.0 + COLLISION_GRACE_FRAMES > frames.0 {
-        return
-    }
+    let ball_transform = ball.single_mut();
 
     if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
         score_board.left_score += 1;
-        ball_info.collision_frame = *frames;
     } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
         score_board.right_score += 1;
-        ball_info.collision_frame = *frames;
     }
 }
 
@@ -171,9 +159,8 @@ fn update_scoreboard_system(
 
 fn collision_system(
     windows: Query<&Window>,
-    paddle_query: Query<&Transform, With<Collision>>,
-    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collision>>,
-    frames: Res<FrameCount>,
+    paddle_query: Query<&Transform, With<Collider>>,
+    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collider>>,
 ) {
     let window = windows.single();
 
@@ -181,22 +168,42 @@ fn collision_system(
     let wall_right = window.width() / 2.;
 
     let (ball_transform, mut ball_info) = ball_query.single_mut();
-    if ball_info.collision_frame.0 + COLLISION_GRACE_FRAMES > frames.0 {
-        return
-    }
 
     for paddle_transform in &paddle_query {
-
-        if (paddle_transform.translation.x - ball_transform.translation.x).abs() < BALL_RADIUS + 10.
-            && (paddle_transform.translation.y - ball_transform.translation.y).abs() < BALL_RADIUS + 75.
-        {
-            ball_info.direction += if ball_info.direction.abs() % PI == 0. {3. * PI / 4.} else {PI / 4.};
-            ball_info.speed += SPEED_INCREASE_PER_BOUNCE;
-            ball_info.collision_frame = *frames;
+        let mut collision = collide(
+            ball_transform.translation,
+            Vec2::new(BALL_RADIUS, BALL_RADIUS),
+            paddle_transform.translation,
+            PLAYER_SIZE.unwrap(),
+        );
+        if ball_transform.translation.y > ceiling {
+            collision = Some(Collision::Bottom);
+        } else if ball_transform.translation.y < -ceiling {
+            collision = Some(Collision::Top);
+        } else if ball_transform.translation.x > wall_right {
+            collision = Some(Collision::Left);
+        }  else if ball_transform.translation.x < -wall_right {
+            collision = Some(Collision::Right);
         }
-        if ball_transform.translation.y.abs() > ceiling || ball_transform.translation.x.abs() > wall_right {
-            ball_info.direction += PI / 4.;
-            ball_info.collision_frame = *frames;
+
+        if let Some(collision) = collision {
+            let mut vert_reflect = false;
+            let mut hori_reflect = false;
+
+            match collision {
+                Collision::Left => hori_reflect = ball_info.x > 0.0,
+                Collision::Right => hori_reflect = ball_info.x < 0.0,
+                Collision::Top => vert_reflect = ball_info.y < 0.0,
+                Collision::Bottom => vert_reflect = ball_info.y > 0.0,
+                Collision::Inside => {}
+            }
+
+            if hori_reflect {
+                ball_info.x = -ball_info.x * SPEED_INCREASE_PER_BOUNCE;
+            }
+            if vert_reflect {
+                ball_info.y = -ball_info.y * SPEED_INCREASE_PER_BOUNCE;
+            }
         }
     }
 }
@@ -219,6 +226,6 @@ fn ball_movement_system(
     mut query: Query<(&mut Transform, &GameBall)>,
 ) {
     let (mut ball_transform, ball_info) = query.single_mut();
-    ball_transform.translation.x += ball_info.speed * f32::cos(ball_info.direction) * time.delta_seconds();
-    ball_transform.translation.y += ball_info.speed * f32::sin(ball_info.direction) * time.delta_seconds();
+    ball_transform.translation.x += ball_info.x * time.delta_seconds();
+    ball_transform.translation.y += ball_info.y * time.delta_seconds();
 }
