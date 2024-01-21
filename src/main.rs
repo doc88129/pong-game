@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use bevy::math::vec2;
+use std::time::Duration;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::sprite::collide_aabb::{collide, Collision};
@@ -18,8 +18,8 @@ const MAX_PLAYER_HEIGHT: f32 = 275.;
 const GOAL_BUFFER: f32 = 75.;
 const BALL_RADIUS: f32 = 10.;
 
-#[derive(Component)]
-struct Collider;
+#[derive(Event)]
+struct CollisionEvent;
 
 #[derive(Component)]
 struct PlayerControlled;
@@ -37,9 +37,10 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_resource::<ScoreBoard>()
+        .add_event::<CollisionEvent>()
         .add_systems(Startup, scene_setup)
         .add_systems(FixedUpdate, (player_input_system, ball_movement_system, collision_system))
-        .add_systems(Update, score_event_trigger)
+        .add_systems(Update, (score_event_trigger, collision_event_listener))
         .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
 }
@@ -104,7 +105,7 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled, Collider
+        PlayerControlled
     ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
@@ -115,7 +116,7 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled, Collider
+        PlayerControlled
     ));
 }
 
@@ -159,8 +160,9 @@ fn update_scoreboard_system(
 
 fn collision_system(
     windows: Query<&Window>,
-    paddle_query: Query<&Transform, With<Collider>>,
-    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collider>>,
+    paddle_query: Query<&Transform, With<PlayerControlled>>,
+    mut ball_query: Query<(&Transform, &mut GameBall), Without<PlayerControlled>>,
+    mut events: EventWriter<CollisionEvent>
 ) {
     let window = windows.single();
 
@@ -204,6 +206,8 @@ fn collision_system(
             if vert_reflect {
                 ball_info.y = -ball_info.y * SPEED_INCREASE_PER_BOUNCE;
             }
+
+            events.send(CollisionEvent);
         }
     }
 }
@@ -228,4 +232,17 @@ fn ball_movement_system(
     let (mut ball_transform, ball_info) = query.single_mut();
     ball_transform.translation.x += ball_info.x * time.delta_seconds();
     ball_transform.translation.y += ball_info.y * time.delta_seconds();
+}
+
+fn collision_event_listener(
+    mut commamds: Commands,
+    mut pitch_assets: ResMut<Assets<Pitch>>,
+    mut events: EventReader<CollisionEvent>,
+) {
+    for _ in events.read() {
+        commamds.spawn(PitchBundle {
+            source: pitch_assets.add(Pitch::new(520., Duration::new(0, 20_000_000))),
+            settings: PlaybackSettings::DESPAWN,
+        });
+    }
 }
