@@ -18,8 +18,8 @@ const MAX_PLAYER_HEIGHT: f32 = 275.;
 const GOAL_BUFFER: f32 = 75.;
 const BALL_RADIUS: f32 = 10.;
 
-#[derive(Event)]
-struct CollisionEvent;
+#[derive(Event, Default)]
+struct CollisionEvent(bool);
 
 #[derive(Component)]
 struct PlayerControlled;
@@ -138,13 +138,16 @@ fn reset_scene(
 fn score_event_trigger(
     mut ball: Query<&Transform, With<GameBall>>,
     mut score_board: ResMut<ScoreBoard>,
+    mut events: EventWriter<CollisionEvent>,
 ) {
     let ball_transform = ball.single_mut();
 
     if ball_transform.translation.x > PLAYER_LOCATION + GOAL_BUFFER {
         score_board.left_score += 1;
+        events.send(CollisionEvent(true));
     } else if ball_transform.translation.x < -(PLAYER_LOCATION + GOAL_BUFFER) {
         score_board.right_score += 1;
+        events.send(CollisionEvent(true));
     }
 }
 
@@ -207,7 +210,7 @@ fn collision_system(
                 ball_info.y = -ball_info.y * SPEED_INCREASE_PER_BOUNCE;
             }
 
-            events.send(CollisionEvent);
+            events.send(CollisionEvent(false));
         }
     }
 }
@@ -239,10 +242,21 @@ fn collision_event_listener(
     mut pitch_assets: ResMut<Assets<Pitch>>,
     mut events: EventReader<CollisionEvent>,
 ) {
-    for _ in events.read() {
-        commamds.spawn(PitchBundle {
-            source: pitch_assets.add(Pitch::new(520., Duration::new(0, 20_000_000))),
-            settings: PlaybackSettings::DESPAWN,
-        });
+    for collision in events.read() {
+        if collision.0 {
+            commamds.spawn(PitchBundle {
+                source: pitch_assets.add(Pitch::new(100., Duration::new(0, 200_000_000))),
+                settings: PlaybackSettings::DESPAWN,
+            });
+            commamds.spawn(PitchBundle {
+                source: pitch_assets.add(Pitch::new(500., Duration::new(0, 200_000_000))),
+                settings: PlaybackSettings::DESPAWN,
+            });
+        } else {
+            commamds.spawn(PitchBundle {
+                source: pitch_assets.add(Pitch::new(520., Duration::new(0, 20_000_000))),
+                settings: PlaybackSettings::DESPAWN,
+            });
+        }
     }
 }
