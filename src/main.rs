@@ -62,7 +62,6 @@ fn scene_setup(
 
 fn ui_text_setup(command: &mut Commands) {
     command.spawn((
-        // Create a TextBundle that has a Text with a single section.
         TextBundle::from_section(
             "0 - 0",
             TextStyle {
@@ -92,10 +91,10 @@ fn game_ball_setup(
         transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
         ..default()
     },
-                   GameBall {
-                       speed: BALL_STARTING_SPEED,
-                       ..default()
-                   },
+        GameBall {
+            speed: BALL_STARTING_SPEED,
+            ..default()
+        },
     ));
 }
 
@@ -109,8 +108,8 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-                   PlayerControlled,
-                   Collision
+        PlayerControlled,
+        Collision
     ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
@@ -121,8 +120,8 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-                   PlayerControlled,
-                   Collision
+        PlayerControlled,
+        Collision
     ));
 }
 
