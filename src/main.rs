@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 use std::time::Duration;
+use rand::{Rng, thread_rng};
 use bevy::{
     prelude::*,
     time::Stopwatch,
@@ -9,7 +10,6 @@ use bevy::{
         collide_aabb::{collide, Collision}
     }
 };
-use rand::seq::SliceRandom;
 
 const PLAYER_COLOR: Color = Color::WHITE;
 const PLAYER_SIZE: Option<Vec2> = Some(Vec2::new(20.0, 150.0));
@@ -109,6 +109,7 @@ fn game_ball_setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>
 ) {
+    let rng = thread_rng().gen_range(-360.0..360.0);
     command.spawn((MaterialMesh2dBundle {
         mesh: meshes.add(shape::Circle::new(BALL_RADIUS).into()).into(),
         material: materials.add(ColorMaterial::from(Color::WHITE)),
@@ -116,8 +117,8 @@ fn game_ball_setup(
         ..default()
     },
         GameBall(Vec2::new(
-            *[BALL_STARTING_SPEED/2., -BALL_STARTING_SPEED/2.].choose(&mut rand::thread_rng()).unwrap(),
-            *[BALL_STARTING_SPEED, -BALL_STARTING_SPEED].choose(&mut rand::thread_rng()).unwrap(),
+            BALL_STARTING_SPEED * f32::cos(rng),
+            BALL_STARTING_SPEED * f32::sin(rng),
         ))
     ));
 }
@@ -157,10 +158,11 @@ fn reset_scene(
     }
 
     let (mut ball_transform, mut ball_info) = ball_query.single_mut();
+    let rng = thread_rng().gen_range(-360.0..360.0);
     ball_transform.translation.x = 0.;
     ball_transform.translation.y = 0.;
-    ball_info.y = *[BALL_STARTING_SPEED/2., -BALL_STARTING_SPEED/2.].choose(&mut rand::thread_rng()).unwrap();
-    ball_info.x = *[BALL_STARTING_SPEED, -BALL_STARTING_SPEED].choose(&mut rand::thread_rng()).unwrap();
+    ball_info.y = BALL_STARTING_SPEED * f32::cos(rng);
+    ball_info.x = BALL_STARTING_SPEED * f32::sin(rng);
 
     timer.single_mut().0.reset();
 }
