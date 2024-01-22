@@ -1,9 +1,14 @@
 #![windows_subsystem = "windows"]
 
 use std::time::Duration;
-use bevy::prelude::*;
-use bevy::sprite::MaterialMesh2dBundle;
-use bevy::sprite::collide_aabb::{collide, Collision};
+use bevy::{
+    prelude::*,
+    time::Stopwatch,
+    sprite::{
+        MaterialMesh2dBundle,
+        collide_aabb::{collide, Collision}
+    }
+};
 use rand::seq::SliceRandom;
 
 const PLAYER_COLOR: Color = Color::WHITE;
@@ -27,6 +32,9 @@ struct PlayerControlled;
 #[derive(Component, Default, Deref, DerefMut)]
 struct GameBall(Vec2);
 
+#[derive(Component)]
+struct TimerUI(Stopwatch);
+
 #[derive(Resource, Default)]
 struct ScoreBoard {
     left_score: u32,
@@ -40,7 +48,7 @@ fn main() {
         .add_event::<CollisionEvent>()
         .add_systems(Startup, scene_setup)
         .add_systems(FixedUpdate, (player_input_system, ball_movement_system, collision_system))
-        .add_systems(Update, (score_event_trigger, collision_event_listener))
+        .add_systems(Update, (score_event_trigger, collision_event_listener, timer_ui_system))
         .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
 }
@@ -74,6 +82,25 @@ fn ui_text_setup(command: &mut Commands) {
                 align_content: AlignContent::Center,
                 ..default()
             }),
+    ));
+
+    command.spawn((
+        TextBundle::from_section(
+            "Time: xx.xxx",
+            TextStyle {
+                font_size: 20.0,
+                ..default()
+            },
+        )
+            .with_text_alignment(TextAlignment::Left)
+            .with_style(Style {
+                position_type: PositionType::Relative,
+                bottom: Val::Px(-690.),
+                right: Val::Px(-10.),
+                align_content: AlignContent::Start,
+                ..default()
+            }),
+        TimerUI(Stopwatch::default()),
     ));
 }
 
@@ -123,6 +150,7 @@ fn paddle_setup(command: &mut Commands) {
 fn reset_scene(
     mut paddle_query: Query<&mut Transform, Without<GameBall>>,
     mut ball_query: Query<(&mut Transform, &mut GameBall), With<GameBall>>,
+    mut timer: Query<&mut TimerUI>,
 ) {
     for mut paddle_transform in &mut paddle_query {
         paddle_transform.translation.y = 0.;
@@ -133,6 +161,8 @@ fn reset_scene(
     ball_transform.translation.y = 0.;
     ball_info.y = *[BALL_STARTING_SPEED/2., -BALL_STARTING_SPEED/2.].choose(&mut rand::thread_rng()).unwrap();
     ball_info.x = *[BALL_STARTING_SPEED, -BALL_STARTING_SPEED].choose(&mut rand::thread_rng()).unwrap();
+
+    timer.single_mut().0.reset();
 }
 
 fn score_event_trigger(
@@ -152,7 +182,7 @@ fn score_event_trigger(
 }
 
 fn update_scoreboard_system(
-    mut query: Query<&mut Text>,
+    mut query: Query<&mut Text, Without<TimerUI>>,
     score_board: Res<ScoreBoard>,
 ) {
     let updated_text = format!("{} - {}", score_board.left_score ,score_board.right_score);
@@ -259,4 +289,13 @@ fn collision_event_listener(
             });
         }
     }
+}
+
+fn timer_ui_system(mut query: Query<(&mut Text, &mut TimerUI)>, time: Res<Time>) {
+    let (mut ui, mut component) = query.single_mut();
+    component.0.tick(time.delta());
+    ui.sections[0].value = format!("Time: {}.{}",
+                                   component.0.elapsed().as_secs(),
+                                   component.0.elapsed().as_millis() % 100
+    );
 }
