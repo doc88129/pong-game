@@ -17,6 +17,7 @@ const PLAYER_LOCATION: f32 = 450.;
 
 const BALL_STARTING_SPEED: f32 = 175.;
 const PLAYER_SPEED: f32 = 5.;
+const ENEMY_SPEED: f32 = 200.;
 const SPEED_INCREASE_PER_BOUNCE: f32 = 1.1;
 
 const MAX_PLAYER_HEIGHT: f32 = 275.;
@@ -27,7 +28,21 @@ const BALL_RADIUS: f32 = 10.;
 struct CollisionEvent(bool);
 
 #[derive(Component)]
+struct Collider;
+
+#[derive(Component)]
 struct PlayerControlled;
+
+#[derive(Default)]
+enum EnemyState {
+    MovingUp,
+    MovingDown,
+    #[default]
+    StandingStill,
+}
+
+#[derive(Component, Default)]
+struct EnemyControlled(EnemyState);
 
 #[derive(Component, Default, Deref, DerefMut)]
 struct GameBall(Vec2);
@@ -47,7 +62,7 @@ fn main() {
         .init_resource::<ScoreBoard>()
         .add_event::<CollisionEvent>()
         .add_systems(Startup, scene_setup)
-        .add_systems(FixedUpdate, (player_input_system, ball_movement_system, collision_system))
+        .add_systems(FixedUpdate, (player_input_system, ball_movement_system, collision_system, opponent_system, enemy_input_system))
         .add_systems(Update, (score_event_trigger, collision_event_listener, timer_ui_system))
         .add_systems(Update, (reset_scene, update_scoreboard_system).run_if(resource_changed::<ScoreBoard>()))
         .run();
@@ -133,7 +148,8 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled
+                   PlayerControlled,
+                   Collider
     ));
     command.spawn((SpriteBundle {
         sprite: Sprite {
@@ -144,7 +160,8 @@ fn paddle_setup(command: &mut Commands) {
         transform: Transform::from_translation(Vec3::new(-PLAYER_LOCATION, 0., 0.)),
         ..default()
     },
-        PlayerControlled
+                   EnemyControlled::default(),
+                   Collider
     ));
 }
 
@@ -195,8 +212,8 @@ fn update_scoreboard_system(
 
 fn collision_system(
     windows: Query<&Window>,
-    paddle_query: Query<&Transform, With<PlayerControlled>>,
-    mut ball_query: Query<(&Transform, &mut GameBall), Without<PlayerControlled>>,
+    paddle_query: Query<&Transform, With<Collider>>,
+    mut ball_query: Query<(&Transform, &mut GameBall), Without<Collider>>,
     mut events: EventWriter<CollisionEvent>
 ) {
     let window = windows.single();
@@ -251,12 +268,11 @@ fn player_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<&mut Transform, With<PlayerControlled>>,
 ) {
-    for mut player in &mut query {
-        if keyboard_input.pressed(KeyCode::Up) && player.translation.y < MAX_PLAYER_HEIGHT {
-            player.translation.y += PLAYER_SPEED;
-        } else if keyboard_input.pressed(KeyCode::Down) && player.translation.y > -MAX_PLAYER_HEIGHT{
-            player.translation.y -= PLAYER_SPEED;
-        }
+    let mut player = query.single_mut();
+    if keyboard_input.pressed(KeyCode::Up) && player.translation.y < MAX_PLAYER_HEIGHT {
+        player.translation.y += PLAYER_SPEED;
+    } else if keyboard_input.pressed(KeyCode::Down) && player.translation.y > -MAX_PLAYER_HEIGHT{
+        player.translation.y -= PLAYER_SPEED;
     }
 }
 
@@ -300,4 +316,38 @@ fn timer_ui_system(mut query: Query<(&mut Text, &mut TimerUI)>, time: Res<Time>)
                                    component.0.elapsed().as_secs(),
                                    component.0.elapsed().as_millis() % 100
     );
+}
+
+fn opponent_system(
+    ball_query: Query<&Transform, With<GameBall>>,
+    mut enemy_query: Query<(&Transform, &mut EnemyControlled), With<EnemyControlled>>
+) {
+    let ball_transform = ball_query.single();
+    let (enemy_transform, mut enemy_state) = enemy_query.single_mut();
+
+    if ball_transform.translation.y > enemy_transform.translation.y {
+        enemy_state.0 = EnemyState::MovingUp;
+    } else if ball_transform.translation.y < enemy_transform.translation.y {
+        enemy_state.0 = EnemyState::MovingDown;
+    } else {
+        enemy_state.0 = EnemyState::StandingStill;
+    }
+}
+
+fn enemy_input_system(
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &EnemyControlled)>,
+) {
+    let (mut enemy_transform, enemy_state) = query.single_mut();
+    match enemy_state.0 {
+        EnemyState::MovingUp => {
+            if enemy_transform.translation.y > MAX_PLAYER_HEIGHT {return}
+            enemy_transform.translation.y += ENEMY_SPEED * time.delta_seconds();
+        },
+        EnemyState::MovingDown => {
+            if enemy_transform.translation.y < -MAX_PLAYER_HEIGHT {return}
+            enemy_transform.translation.y -= ENEMY_SPEED * time.delta_seconds();
+        },
+        EnemyState::StandingStill => {}
+    }
 }
